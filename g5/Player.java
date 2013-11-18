@@ -69,8 +69,8 @@ public class Player extends sheepdog.sim.Player {
 			if (sheep[i].y < minY) minY = sheep[i].y;
 			if (sheep[i].y > maxY) maxY = sheep[i].y;
 		}
-		minY = minY > 45.0 ? 45.0 : minY;
-		maxY = maxY < 55.0 ? 55.0 : maxY;
+		minY = minY > 46.5 ? 46.5 : minY;
+		maxY = maxY < 51.5 ? 51.5 : maxY;
 		nodes[0] = new sheepNode(new Point(50.001, maxY));
 		nodes[1] = new sheepNode(new Point(50.001, minY));
 		
