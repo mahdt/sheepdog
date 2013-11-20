@@ -79,7 +79,7 @@ public class Player extends sheepdog.sim.Player {
 
 		// phase 0: move dog to gate
 		if (phase == 0) {
-			desired = new Point(50,50);
+			desired = center;
 			dogOnTraj = true;
 			recompute = true;
 		}
