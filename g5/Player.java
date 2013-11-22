@@ -19,7 +19,7 @@ public class Player extends sheepdog.sim.Player {
 	private Point[] travelShape, undeliveredSheep;
 	private LinkedList<Point> travelTraj;
 	private boolean dogOnTraj, goCW, recompute;
-	private Point desired, current, center;
+	private Point desired, current, center, lastVertex;
 	private int phase;
 	private int tickCount, desiredTicks;
 
@@ -29,7 +29,7 @@ public class Player extends sheepdog.sim.Player {
 		this.nblacks = nblacks;
 		this.mode = mode;
 		this.phase = 0;
-		this.speed = 1.5;
+		this.speed = 2;
 		this.dogOnTraj = false;
 		this.phase = 0;
 		this.goCW = this.id % 2 == 0;
@@ -59,21 +59,35 @@ public class Player extends sheepdog.sim.Player {
 			if (current.equals(desired)) {
 				dogOnTraj = false;
 				if (phase == 0) phase++;
-				if (phase == 1 && tickCount < desiredTicks) {
+				/*if (phase == 1 && tickCount < desiredTicks) {
 					dogOnTraj = true;
 					tickCount++;
 					
 					// TODO: have dogs push inward at each vertex then return
 					// to point and continue, instead of standing still
 					return current;
+				}*/
+				if (phase == 1) {
+					lastVertex = current;
+					phase++;
+					speed = 0.5;
+					desired = center;
+					dogOnTraj = true;
 				}
-				if (phase == 1 && tickCount == desiredTicks) {
+				else if (phase == 2) {
+					phase--;
+					speed = 2;
+				}
+				/*if (phase == 1 && tickCount == desiredTicks) {
 					tickCount = 0;
 					dogOnTraj = false;
-				} 
+				}*/
+			}
+			else if (phase == 2) {
+				desired = lastVertex;
 			}
 			else {
-				return (moveDog(current, desired));
+				return (moveDog(current, desired, speed));
 			}
 		}
 
@@ -112,7 +126,7 @@ public class Player extends sheepdog.sim.Player {
 		}
 
 		// move the dog to the next computed point
-		current = moveDog(current, desired);	
+		current = moveDog(current, desired, speed);	
 
 		/*if (mode) {
 		// advanced task code comes here
@@ -233,7 +247,7 @@ public class Player extends sheepdog.sim.Player {
 	
 	// given the current point and desired point, computes the direction vector and
 	// moves the dog towards that direction at the specified speed
-	public Point moveDog(Point current, Point desired) {
+	public Point moveDog(Point current, Point desired, double speed) {
 		Point vector = new Point(desired.x - current.x, desired.y - current.y);
 		double length = Math.sqrt(vector.x*vector.x + vector.y*vector.y);
 		if (length == 0) return current;
