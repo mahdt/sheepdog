@@ -18,10 +18,12 @@ public class Player extends sheepdog.sim.Player {
 	private double speed;
 	private Point[] travelShape, undeliveredSheep;
 	private LinkedList<Point> travelTraj;
-	private boolean dogOnTraj, goCW, recompute;
+	private boolean dogOnTraj, goCW, recompute, directionSet;
 	private Point desired, current, center, lastVertex;
 	private int phase;
-	private int tickCount, desiredTicks;
+	private int currentDelay, initialDelay;
+	private static final int maxTicks = 60;
+	private boolean endGame;
 
 
 	// initialize our player
@@ -34,10 +36,11 @@ public class Player extends sheepdog.sim.Player {
 		this.phase = 0;
 		this.goCW = this.id % 2 == 0;
 		this.recompute = true;
-		this.tickCount = 0;
-		this.desiredTicks = 3;
+		this.currentDelay = 0;
+		this.initialDelay = 0;
 		this.center = new Point(50.0, 50.0);
 		travelTraj = new LinkedList<Point>();
+		this.directionSet = false;
 		//mult = 0;
 		//dirFlags = new boolean[4];
 		//Arrays.fill(dirFlags, false);
@@ -47,9 +50,28 @@ public class Player extends sheepdog.sim.Player {
 	// returns the next position for the dog to move to
 	public Point move(Point[] dogs, Point[] sheeps) {
 		
+		if (dogs.length % 2 != 0 && id > dogs.length / 2 + 1 && !directionSet) {
+			goCW = !goCW;
+			directionSet = true;
+		}
+		
 		current = dogs[id - 1]; // our current position
 		undeliveredSheep = computeUndeliveredSheep(sheeps);
-
+		if (dogs.length < 3)
+			initialDelay = 0;
+		else {
+			int posFromCenter = 0;
+			if (dogs.length % 2 == 0) posFromCenter = Math.abs(id - dogs.length/2) - (id > dogs.length/2 ? 1 : 0);
+			else posFromCenter = Math.abs(id - dogs.length/2 - 1);
+			initialDelay = (maxTicks/(dogs.length/2))*(posFromCenter);
+			System.out.println("initialDelay for dog "+ id +" is: "+initialDelay+ " and pos from center is " + posFromCenter);
+		}
+		double maxX=0;		
+		for (int i =0; i < undeliveredSheep.length; i++) {
+			if (undeliveredSheep[i].x > maxX)
+				maxX = undeliveredSheep[i].x;
+		}
+		endGame = (maxX < 52);
 		//Point desired = new Point(99.5, 51);
 		// phase 0 - dog in LH
 		
@@ -58,7 +80,9 @@ public class Player extends sheepdog.sim.Player {
 			// if the desired point is reached
 			if (current.equals(desired)) {
 				dogOnTraj = false;
-				if (phase == 0) phase++;
+				if (phase == 0) {
+					phase++;
+				}
 				/*if (phase == 1 && tickCount < desiredTicks) {
 					dogOnTraj = true;
 					tickCount++;
@@ -70,13 +94,13 @@ public class Player extends sheepdog.sim.Player {
 				if (phase == 1) {
 					lastVertex = current;
 					phase++;
-					speed = 0.5;
+					speed = 0.75;
 					desired = center;
 					dogOnTraj = true;
 				}
 				else if (phase == 2) {
 					phase--;
-					speed = 2;
+					speed = endGame ? 0.5 : 2;
 				}
 				/*if (phase == 1 && tickCount == desiredTicks) {
 					tickCount = 0;
@@ -93,6 +117,10 @@ public class Player extends sheepdog.sim.Player {
 
 		// phase 0: move dog to gate
 		if (phase == 0) {
+			if (currentDelay < initialDelay) {
+				currentDelay++;
+				return current;
+			} 
 			desired = center;
 			dogOnTraj = true;
 			recompute = true;
@@ -124,113 +152,8 @@ public class Player extends sheepdog.sim.Player {
 		if (phase == 2) {
 			
 		}
-
 		// move the dog to the next computed point
 		current = moveDog(current, desired, speed);	
-
-		/*if (mode) {
-		// advanced task code comes here
-	} else { }
-		// basic task code comes here
-		if (dogs.length == 1) {
-			//if (phase != 4) phase = 3;
-			if (phase == 0) {
-				desired.x = 52;
-				desired.y = 50;
-
-				if (current.equals(desired)) {
-					phase = 1;
-					dirFlags[up] = true;
-					System.out.println("entering phase 1");
-				}
-			}
-			if (phase == 1 || phase == 2) {
-				double offset = mult == 0 ? 0.5 : 0.0;
-				if (dirFlags[up]) {				
-					desired = new Point(current.x, constDist*mult + offset);
-					if (current.equals(desired)) {
-						dirFlags[up] = false;
-						dirFlags[right] = true;
-					}
-				}
-				else if (dirFlags[down]) {
-					desired = new Point(current.x, 100.0 - constDist*mult - offset);
-					if (current.equals(desired)) {
-						dirFlags[down] = false;
-						dirFlags[left] = true;
-					}
-				}
-				else if (dirFlags[right]) {
-					desired = new Point(100.0 - 0.5, current.y);
-					if (current.equals(desired)) {
-						dirFlags[right] = false;
-						dirFlags[down] = true;
-					}
-				}
-				else if (dirFlags[left]) {
-					desired = new Point(50.0 + 0.5, current.y);
-					if (current.equals(desired)) {
-						dirFlags[left] = false;
-						dirFlags[up] = true;
-						if (phase ==1)
-							mult++;
-					}
-				}
-				if (phase == 2) {
-					double minY = Double.MAX_VALUE;
-					double maxY = Double.MIN_VALUE;
-					for (int i = 0; i < sheeps.length; i++) {
-						if (sheeps[i].y < minY && sheeps[i].y > 40.0 && sheeps[i].y < 60.0 && sheeps[i].x>50) minY = sheeps[i].y;
-						if (sheeps[i].y > maxY && sheeps[i].y > 40.0 && sheeps[i].y < 60.0 && sheeps[i].x>50) maxY = sheeps[i].y;
-					}
-					double eps = 2.5;
-					System.out.printf("maxy: %f, miny: %f\n", maxY, minY);
-					if (maxY - minY <= eps && dirFlags[down]) {
-						phase = 3;
-						//speed = 0.5;
-						//dirFlags[down] = false;
-						System.out.println("Entering phase 3");
-					}
-				}
-				if (mult * constDist >= 40.0)
-					phase = 2;
-			}
-			if (phase == 3) {
-				desired = new Point(99.5, 51.0);
-				prevDesired = desired;
-				Arrays.fill(dirFlags, false);
-				if (current.equals(desired)) {
-					phase = 4;
-					mult = 0;
-					dirFlags[up] = true;
-				}
-			}
-			if (phase == 4) {
-				if (dirFlags[up]) {
-					desired = new Point(prevDesired.x - constDistX, prevDesired.y - constDistY);
-					if (current.equals(desired)) {
-						dirFlags[up] = false;
-						dirFlags[down] = true; 
-						prevDesired = desired;
-					}
-				}
-				else if (dirFlags[down]) {
-					desired = new Point(prevDesired.x - constDistX, prevDesired.y + constDistY);
-					if (current.equals(desired)) {
-						dirFlags[down] = false;
-						dirFlags[up] = true; 
-						prevDesired = desired;
-					}
-				}
-				if (current.x < 51.0) phase = 5;
-			}
-			if (phase ==5)
-				return current;
-			current = moveDog (current, desired);
-			System.out.println("desired " + desired.x + " " + desired.y + " up = "+dirFlags[up] + " and down = " + dirFlags[down]);
-			System.out.println("current: " + current.x + " " + current.y);	
-		}
-	}*/
 
 		return current;
 	}
@@ -301,8 +224,9 @@ public class Player extends sheepdog.sim.Player {
 			if (sheep[i].y > maxY) maxY = sheep[i].y;
 		}
 		// if all the sheep are above or below the gate, adjust the max/min values accordingly
-		minY = minY > 42.0 ? 42.0 : minY;
-		maxY = maxY < 58.0 ? 58.0 : maxY;
+		double distFromGate = endGame ? 2.3 : 8;
+		minY = minY > 50 - distFromGate ? 50 - distFromGate : minY;
+		maxY = maxY < 50 + distFromGate ? 50 + distFromGate : maxY;
 		nodes[0] = new SheepNode(new Point(50.0 + EPSILON, maxY));
 		nodes[1] = new SheepNode(new Point(50.0 + EPSILON, minY));
 
@@ -352,6 +276,7 @@ public class Player extends sheepdog.sim.Player {
 	// grows the hull outward so the dog will enclose all the sheep
 	public Point[] growHull(Point[] hull) {
 		double rad = 1.5;
+		double rightRad = endGame ? rad * 2.5 : rad;
 		Point[] newPoints = new Point[hull.length * 6];
 		for (int i=0; i < hull.length; i++) {
 			// original point
@@ -361,12 +286,12 @@ public class Player extends sheepdog.sim.Player {
 			// point below
 			newPoints[6 * i + 2] = new Point(hull[i].x, hull[i].y + rad >= 100.0 ? 100.0 - EPSILON : hull[i].y + rad);
 			// point on right
-			newPoints[6 * i + 3] = new Point(hull[i].x + rad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rad, hull[i].y);
+			newPoints[6 * i + 3] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad, hull[i].y);
 			// top right
-			newPoints[6 * i + 4] = new Point(hull[i].x + rad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rad,
+			newPoints[6 * i + 4] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad,
 					hull[i].y - rad <= 0.0 ? 0.0 + EPSILON : hull[i].y - rad);
 			// bottom right
-			newPoints[6 * i + 5] = new Point(hull[i].x + rad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rad,
+			newPoints[6 * i + 5] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad,
 					hull[i].y + rad >= 100.0 ? 100.0 - EPSILON : hull[i].y + rad);
 		}
 		return computeHull(newPoints);
