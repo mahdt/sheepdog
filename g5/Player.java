@@ -16,12 +16,15 @@ public class Player extends sheepdog.sim.Player {
 	private int nblacks;
 	private boolean mode;
 	private double speed;
-	private Point[] travelShape, undeliveredSheep;
+	private Point[] prevDogs, travelShape, undeliveredSheep;
 	private LinkedList<Point> travelTraj;
 	private boolean dogOnTraj, goCW, recompute;
 	private Point desired, current, center, lastVertex;
 	private int phase;
 	private int tickCount, desiredTicks;
+	private int[] directions;
+	
+	public static double[][] allDogsInfo;
 
 
 	// initialize our player
@@ -46,8 +49,13 @@ public class Player extends sheepdog.sim.Player {
 
 	// returns the next position for the dog to move to
 	public Point move(Point[] dogs, Point[] sheeps) {
-		
 		current = dogs[id - 1]; // our current position
+		System.out.println("id:"+id);
+		System.out.println("current.x:"+current.x);
+		System.out.println("current.y:"+current.y);
+		System.out.println("dog is in phase "+ phase);
+		if (directions == null) directions = new int[dogs.length];
+		
 		undeliveredSheep = computeUndeliveredSheep(sheeps);
 
 		//Point desired = new Point(99.5, 51);
@@ -75,6 +83,12 @@ public class Player extends sheepdog.sim.Player {
 					dogOnTraj = true;
 				}
 				else if (phase == 2) {
+					calcDirections (dogs);
+					//System.out.println("Should dog " + id + " wait: " + shouldDogWait());
+					if (shouldDogWait(dogs, directions)) {
+						dogOnTraj = true;
+						return current;
+					}
 					phase--;
 					speed = 2;
 				}
@@ -126,113 +140,22 @@ public class Player extends sheepdog.sim.Player {
 		}
 
 		// move the dog to the next computed point
-		current = moveDog(current, desired, speed);	
-
-		/*if (mode) {
-		// advanced task code comes here
-	} else { }
-		// basic task code comes here
-		if (dogs.length == 1) {
-			//if (phase != 4) phase = 3;
-			if (phase == 0) {
-				desired.x = 52;
-				desired.y = 50;
-
-				if (current.equals(desired)) {
-					phase = 1;
-					dirFlags[up] = true;
-					System.out.println("entering phase 1");
-				}
-			}
-			if (phase == 1 || phase == 2) {
-				double offset = mult == 0 ? 0.5 : 0.0;
-				if (dirFlags[up]) {				
-					desired = new Point(current.x, constDist*mult + offset);
-					if (current.equals(desired)) {
-						dirFlags[up] = false;
-						dirFlags[right] = true;
-					}
-				}
-				else if (dirFlags[down]) {
-					desired = new Point(current.x, 100.0 - constDist*mult - offset);
-					if (current.equals(desired)) {
-						dirFlags[down] = false;
-						dirFlags[left] = true;
-					}
-				}
-				else if (dirFlags[right]) {
-					desired = new Point(100.0 - 0.5, current.y);
-					if (current.equals(desired)) {
-						dirFlags[right] = false;
-						dirFlags[down] = true;
-					}
-				}
-				else if (dirFlags[left]) {
-					desired = new Point(50.0 + 0.5, current.y);
-					if (current.equals(desired)) {
-						dirFlags[left] = false;
-						dirFlags[up] = true;
-						if (phase ==1)
-							mult++;
-					}
-				}
-				if (phase == 2) {
-					double minY = Double.MAX_VALUE;
-					double maxY = Double.MIN_VALUE;
-					for (int i = 0; i < sheeps.length; i++) {
-						if (sheeps[i].y < minY && sheeps[i].y > 40.0 && sheeps[i].y < 60.0 && sheeps[i].x>50) minY = sheeps[i].y;
-						if (sheeps[i].y > maxY && sheeps[i].y > 40.0 && sheeps[i].y < 60.0 && sheeps[i].x>50) maxY = sheeps[i].y;
-					}
-					double eps = 2.5;
-					System.out.printf("maxy: %f, miny: %f\n", maxY, minY);
-					if (maxY - minY <= eps && dirFlags[down]) {
-						phase = 3;
-						//speed = 0.5;
-						//dirFlags[down] = false;
-						System.out.println("Entering phase 3");
-					}
-				}
-				if (mult * constDist >= 40.0)
-					phase = 2;
-			}
-			if (phase == 3) {
-				desired = new Point(99.5, 51.0);
-				prevDesired = desired;
-				Arrays.fill(dirFlags, false);
-				if (current.equals(desired)) {
-					phase = 4;
-					mult = 0;
-					dirFlags[up] = true;
-				}
-			}
-			if (phase == 4) {
-				if (dirFlags[up]) {
-					desired = new Point(prevDesired.x - constDistX, prevDesired.y - constDistY);
-					if (current.equals(desired)) {
-						dirFlags[up] = false;
-						dirFlags[down] = true; 
-						prevDesired = desired;
-					}
-				}
-				else if (dirFlags[down]) {
-					desired = new Point(prevDesired.x - constDistX, prevDesired.y + constDistY);
-					if (current.equals(desired)) {
-						dirFlags[down] = false;
-						dirFlags[up] = true; 
-						prevDesired = desired;
-					}
-				}
-				if (current.x < 51.0) phase = 5;
-			}
-			if (phase ==5)
-				return current;
-			current = moveDog (current, desired);
-			System.out.println("desired " + desired.x + " " + desired.y + " up = "+dirFlags[up] + " and down = " + dirFlags[down]);
-			System.out.println("current: " + current.x + " " + current.y);	
-		}
-	}*/
+		current = moveDog(current, desired, speed);
+		prevDogs = dogs.clone();
 
 		return current;
+	}
+	
+	public void calcDirections(Point[] dogs) {
+		for (int i = 0; i < dogs.length; i++) {
+			if (dogs[i].x < 50) directions[i] = -1;
+			if ((dogs[i].y - prevDogs[i].y) > 0 || ((dogs[i].x - prevDogs[i].x) > 0 && dogs[i].y < 50) || 
+													((dogs[i].x - prevDogs[i].x) < 0 && dogs[i].y > 50))
+				directions[i] = 1;
+			else if ((dogs[i].y - prevDogs[i].y) < 0 || ((dogs[i].x - prevDogs[i].x) > 0 && dogs[i].y > 50) || 
+													((dogs[i].x - prevDogs[i].x) < 0 && dogs[i].y < 50))
+				directions[i] = 0;			
+		}
 	}
 	
 	// returns the sheep that have not been delivered
@@ -242,6 +165,75 @@ public class Player extends sheepdog.sim.Player {
 			if (sheep[i].x > 50.0 + EPSILON) temp.add(sheep[i]);
 		}
 		return temp.toArray(new Point[temp.size()]);
+	}
+	
+	public boolean shouldDogWait(Point[] dogs, int[] directions) {
+		System.out.println("In shouldDogWait()");
+		int nextDogIndex = -1;
+		if (goCW) {
+			double closestYBelow = 0.0;
+			for (int i = 0; i < dogs.length; i++) {
+				if (directions[i] == 1 && dogs[i].y < current.y && dogs[i].y >= closestYBelow) {
+					closestYBelow = dogs[i].y;
+					nextDogIndex = i;
+				}
+			}
+		}
+		else {
+			double closestYAbove = 0.0;
+			for (int i = 0; i < dogs.length; i++) {
+				System.out.println("i:" + i);
+				if (directions[i] == 1 && dogs[i].y > current.y && dogs[i].y <= closestYAbove) {
+					closestYAbove = dogs[i].y;
+					nextDogIndex = i;
+				}
+			}
+		}
+		
+		if (nextDogIndex == -1) return false;
+		
+		double d = computeHullDistance(current, new Point(dogs[nextDogIndex].x, dogs[nextDogIndex].y), goCW, travelShape);
+		double hullLength = computeHullDistance(travelShape[0], travelShape[travelShape.length - 1], false, travelShape);
+		System.out.println("d of dog " + id +":" + d);
+		System.out.println("hullLength of dog " + id  + ":" + hullLength);
+		System.out.println("maximum d for wait for dog " + id + ":" + (((double) dogs.length) / (2.0 * hullLength)));
+			
+		return (d < ((double) dogs.length) / (2.0 * hullLength));
+	}
+	
+	// estimates the distance along a hull between two dogs
+	// hull is defined as the hull of dog1.
+	public double computeHullDistance(Point dog1, Point dog2, boolean direction, Point[] hull) {
+		int startIndex = 0;
+		for (int i = 0; i < hull.length; i++) {
+			if (approxEqual(dog1, hull[i])) {
+				startIndex = i;
+				break;
+			}
+		}
+		if (direction == false) { // counterclockwise
+			double totalDist = 0;
+			int i = 0;
+			for (i = startIndex + 1; hull[i].y < dog2.y; i++) {
+				totalDist += distance(hull[i - 1], hull[i]);
+			}
+			totalDist += distance(hull[i - 1], dog2);
+			return totalDist;
+		}
+		else { // clockwise
+			double totalDist = 0;
+			int i = 0;
+			for (i = startIndex - 1; hull[i].y > dog2.y; i--) {
+				totalDist += distance(hull[i + 1], hull[i]);
+			}
+			totalDist += distance(hull[i + 1], dog2);
+			return totalDist;
+		}
+	}
+	
+	public boolean approxEqual(Point a, Point b) {
+		double eps = 0.0001;
+		return Math.abs(a.x - b.x) <= eps && Math.abs(a.y - b.y) <= eps;
 	}
 	
 	
@@ -258,6 +250,10 @@ public class Player extends sheepdog.sim.Player {
 		}
 		// if dog is within 2 meters of desired point, move exactly to that point
 		return desired;
+	}
+	
+	public double distance(Point a, Point b) {
+		return Math.sqrt((a.x - b.x) * (a.x - b.x) + (a.y - b.y) * (a.y - b.y));
 	}
 	
 	// inner class to represent a node in our convex hull computation
