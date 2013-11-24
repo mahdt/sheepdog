@@ -94,13 +94,13 @@ public class Player extends sheepdog.sim.Player {
 				if (phase == 1) {
 					lastVertex = current;
 					phase++;
-					speed = 0.75;
+					speed = endGame ? 0.5 : 1.0;
 					desired = center;
 					dogOnTraj = true;
 				}
 				else if (phase == 2) {
 					phase--;
-					speed = endGame ? 0.5 : 2;
+					speed = endGame ? 0.75 : 2;
 				}
 				/*if (phase == 1 && tickCount == desiredTicks) {
 					tickCount = 0;
@@ -224,7 +224,7 @@ public class Player extends sheepdog.sim.Player {
 			if (sheep[i].y > maxY) maxY = sheep[i].y;
 		}
 		// if all the sheep are above or below the gate, adjust the max/min values accordingly
-		double distFromGate = endGame ? 2.3 : 8;
+		double distFromGate = endGame ? 4.0 : 8;
 		minY = minY > 50 - distFromGate ? 50 - distFromGate : minY;
 		maxY = maxY < 50 + distFromGate ? 50 + distFromGate : maxY;
 		nodes[0] = new SheepNode(new Point(50.0 + EPSILON, maxY));
