@@ -5,13 +5,6 @@ import java.util.*;
 
 public class Player extends sheepdog.sim.Player {
 
-	//private boolean dirFlags[];
-	//private int mult;
-	//private Point prevDesired;
-	//private double constDist = 2;
-	//private double constDistX = 0.35, constDistY = 4;
-	//private final int up = 0, down = 1, left = 2, right = 3;
-
 	private final double EPSILON = 0.0001;
 	private int nblacks;
 	private boolean mode;
@@ -19,9 +12,9 @@ public class Player extends sheepdog.sim.Player {
 	private Point[] travelShape, undeliveredSheep;
 	private LinkedList<Point> travelTraj;
 	private boolean dogOnTraj, goCW, recompute, directionSet;
-	private Point desired, current, center, lastVertex;
+	private Point desired, current, center, lastVertex, desiredSheep;
 	private int phase;
-	private int currentDelay, initialDelay;
+	private int currentDelay, initialDelay, chosenSheep;
 	private static final int maxTicks = 60;
 	private boolean endGame;
 
@@ -34,6 +27,7 @@ public class Player extends sheepdog.sim.Player {
 		this.speed = 2;
 		this.dogOnTraj = false;
 		this.phase = 0;
+		this.chosenSheep = -1;
 		this.goCW = this.id % 2 == 0;
 		this.recompute = true;
 		this.currentDelay = 0;
@@ -50,108 +44,130 @@ public class Player extends sheepdog.sim.Player {
 	// returns the next position for the dog to move to
 	public Point move(Point[] dogs, Point[] sheeps) {
 		
-		if (dogs.length % 2 != 0 && id > dogs.length / 2 + 1 && !directionSet) {
-			goCW = !goCW;
-			directionSet = true;
-		}
+		current = dogs[id - 1];
+		// advanced mode?
+		if (mode) {
 		
-		current = dogs[id - 1]; // our current position
-		undeliveredSheep = computeUndeliveredSheep(sheeps);
-		if (dogs.length < 3)
-			initialDelay = 0;
-		else {
-			int posFromCenter = 0;
-			if (dogs.length % 2 == 0) posFromCenter = Math.abs(id - dogs.length/2) - (id > dogs.length/2 ? 1 : 0);
-			else posFromCenter = Math.abs(id - dogs.length/2 - 1);
-			initialDelay = (maxTicks/(dogs.length/2))*(posFromCenter);
-			System.out.println("initialDelay for dog "+ id +" is: "+initialDelay+ " and pos from center is " + posFromCenter);
-		}
-		double maxX=0;		
-		for (int i =0; i < undeliveredSheep.length; i++) {
-			if (undeliveredSheep[i].x > maxX)
-				maxX = undeliveredSheep[i].x;
-		}
-		endGame = (maxX < 52);
-		//Point desired = new Point(99.5, 51);
-		// phase 0 - dog in LH
-		
-		// if the dog is moving to a new point
-		if (dogOnTraj) {
-			// if the desired point is reached
-			if (current.equals(desired)) {
-				dogOnTraj = false;
-				if (phase == 0) {
-					phase++;
-				}
-				/*if (phase == 1 && tickCount < desiredTicks) {
-					dogOnTraj = true;
-					tickCount++;
-					
-					// TODO: have dogs push inward at each vertex then return
-					// to point and continue, instead of standing still
-					return current;
-				}*/
-				if (phase == 1) {
-					lastVertex = current;
-					phase++;
-					speed = endGame ? 0.5 : 1.0;
-					desired = center;
-					dogOnTraj = true;
-				}
-				else if (phase == 2) {
-					phase--;
-					speed = endGame ? 0.75 : 2;
-				}
-				/*if (phase == 1 && tickCount == desiredTicks) {
-					tickCount = 0;
-					dogOnTraj = false;
-				}*/
+			if (phase == 0) {
+				desired = new Point(center);
+				if (current.equals(center)) phase++;
+				else return moveDog(current, center, 2.0 - EPSILON);
 			}
-			else if (phase == 2) {
-				desired = lastVertex;
-			}
+			
 			else {
-				return (moveDog(current, desired, speed));
-			}
-		}
-
-		// phase 0: move dog to gate
-		if (phase == 0) {
-			if (currentDelay < initialDelay) {
-				currentDelay++;
-				return current;
-			} 
-			desired = center;
-			dogOnTraj = true;
-			recompute = true;
-		}
-		// phase 1, compute hull and begin traveling
-		if (phase == 1) {
-			// recomputes the hull for first traversal and each time a hull has been fully traversed
-			if (recompute) {
-				// compute the hull and grow it to get the dog's path
-				travelShape = growHull(computeHull(undeliveredSheep));
-				travelTraj.clear();
-				for (int i = 0; i < travelShape.length; i++) {
-					if (!goCW) travelTraj.push(travelShape[i]);
-					else travelTraj.push(travelShape[travelShape.length - 1 - i]);
+				if (chosenSheep > -1) {
+					if (getSide(sheeps[chosenSheep].x, sheeps[chosenSheep].y) == 0) chosenSheep = -1;
 				}
-				recompute = false;
+			
+				if (chosenSheep < 0) {
+					undeliveredSheep = computeUndeliveredSheep(sheeps, true);
+					chosenSheep = (int) (Math.random() * undeliveredSheep.length);				
+				}
+			
+				desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
+			
+				desired = getUnitDirection(center, desiredSheep);
+				desired.x += desiredSheep.x;
+				desired.y += desiredSheep.y;
+			
+				return moveDog(current, desired, 2.0 - EPSILON);
 			}
-			// if hull has been traversed, prepare to recompute and change direction
-			if (travelTraj.size() == 0) {
-				recompute = true;
-				goCW = !goCW;
-			}
-			// otherwise, pop the next point to navigate to
-			else {
-				desired = travelTraj.pop();	
-			}
-			dogOnTraj = true;
-		}
-		if (phase == 2) {
+			
 			
 		}
+		
+		else {
+		
+			if (dogs.length % 2 != 0 && id > dogs.length / 2 + 1 && !directionSet) {
+				goCW = !goCW;
+				directionSet = true;
+			}
+		
+			current = dogs[id - 1]; // our current position
+			undeliveredSheep = computeUndeliveredSheep(sheeps, false);
+			if (dogs.length < 3) initialDelay = 0;
+			else {
+				int posFromCenter = 0;
+				if (dogs.length % 2 == 0) posFromCenter = Math.abs(id - dogs.length/2) - (id > dogs.length/2 ? 1 : 0);
+				else posFromCenter = Math.abs(id - dogs.length/2 - 1);
+				initialDelay = (maxTicks/(dogs.length/2))*(posFromCenter);
+				System.out.println("initialDelay for dog "+ id +" is: "+initialDelay+ " and pos from center is " + posFromCenter);
+			}
+			double maxX = 0;		
+			for (int i = 0; i < undeliveredSheep.length; i++) {
+				if (undeliveredSheep[i].x > maxX)
+					maxX = undeliveredSheep[i].x;
+			}
+			endGame = (maxX < 52);
+			//Point desired = new Point(99.5, 51);
+			// phase 0 - dog in LH
+		
+			// if the dog is moving to a new point
+			if (dogOnTraj) {
+				// if the desired point is reached
+				if (current.equals(desired)) {
+					dogOnTraj = false;
+					if (phase == 0) {
+						phase++;
+					}
+					if (phase == 1) {
+						lastVertex = current;
+						phase++;
+						speed = endGame ? 0.5 : 1.0;
+						desired = center;
+						dogOnTraj = true;
+					}
+					else if (phase == 2) {
+						phase--;
+						speed = endGame ? 0.75 : 2;
+					}
+				}
+				else if (phase == 2) {
+					desired = lastVertex;
+				}
+				else {
+					return (moveDog(current, desired, speed));
+				}
+			}
+
+			// phase 0: move dog to gate
+			if (phase == 0) {
+				if (currentDelay < initialDelay) {
+					currentDelay++;
+					return current;
+				} 
+				desired = center;
+				dogOnTraj = true;
+				recompute = true;
+			}
+			// phase 1, compute hull and begin traveling
+			if (phase == 1) {
+				// recomputes the hull for first traversal and each time a hull has been fully traversed
+				if (recompute) {
+					// compute the hull and grow it to get the dog's path
+					travelShape = growHull(computeHull(undeliveredSheep));
+					travelTraj.clear();
+					for (int i = 0; i < travelShape.length; i++) {
+						if (!goCW) travelTraj.push(travelShape[i]);
+						else travelTraj.push(travelShape[travelShape.length - 1 - i]);
+					}
+					recompute = false;
+				}
+				// if hull has been traversed, prepare to recompute and change direction
+				if (travelTraj.size() == 0) {
+					recompute = true;
+					goCW = !goCW;
+				}
+				// otherwise, pop the next point to navigate to
+				else {
+					desired = travelTraj.pop();	
+				}
+				dogOnTraj = true;
+			}
+			if (phase == 2) {
+			
+			}
+		}	
 		// move the dog to the next computed point
 		current = moveDog(current, desired, speed);	
 
@@ -159,9 +175,9 @@ public class Player extends sheepdog.sim.Player {
 	}
 	
 	// returns the sheep that have not been delivered
-	public Point[] computeUndeliveredSheep(Point[] sheep) {
+	public Point[] computeUndeliveredSheep(Point[] sheep, boolean black) {
 		ArrayList<Point> temp = new ArrayList<Point>();
-		for (int i = 0; i < sheep.length; i++) {
+		for (int i = 0; i < (black ? nblacks : sheep.length); i++) {
 			if (sheep[i].x > 50.0 + EPSILON) temp.add(sheep[i]);
 		}
 		return temp.toArray(new Point[temp.size()]);
@@ -181,6 +197,21 @@ public class Player extends sheepdog.sim.Player {
 		}
 		// if dog is within 2 meters of desired point, move exactly to that point
 		return desired;
+	}
+	
+	// computes unit vector between two points
+	public Point getUnitDirection(Point current, Point desired) {
+		Point vector = new Point(desired.x - current.x, desired.y - current.y);
+		double length = Math.sqrt(vector.x*vector.x + vector.y*vector.y);
+		vector.x /= length;
+		vector.y /= length;
+		return new Point(vector.x, vector.y);
+	}
+	
+	// distance
+	public double distance(Point current, Point desired) {
+		Point vector = new Point(desired.x - current.x, desired.y - current.y);
+		return Math.sqrt(vector.x*vector.x + vector.y*vector.y);
 	}
 	
 	// inner class to represent a node in our convex hull computation
@@ -254,7 +285,7 @@ public class Player extends sheepdog.sim.Player {
 		stack.push(p0);
 		int i = 1;
 		while(i < nodes.length) {
-			if(isCClockWise(stack.get(1).sheep, stack.get(0).sheep, nodes[i].sheep)) {
+			if (isCClockWise(stack.get(1).sheep, stack.get(0).sheep, nodes[i].sheep)) {
 				stack.push(nodes[i]); 
 				i++;
 			}
@@ -296,5 +327,163 @@ public class Player extends sheepdog.sim.Player {
 		}
 		return computeHull(newPoints);
 	}
+	
+	
+	
+	
+	Point moveSheep(Point[] sheeps, int sheepId) {
+        Point thisSheep = sheeps[sheepId];
+        double dspeed = 0;
+        System.out.println("current: ");
+        System.out.println(current.x + ", " + current.y);
+        Point closestDog = current;
+        double dist = distance(thisSheep, closestDog);
+        assert dist > 0;
+
+        if (dist < 2.0) // run dist
+            dspeed = 1.0; // run speed
+        else if (dist < 10.0) // walk dist
+            dspeed = 0.1; // walk speed
+        
+        // offset from dogs
+        double ox_dog = (thisSheep.x - closestDog.x) / dist * dspeed;
+        double oy_dog = (thisSheep.y - closestDog.y) / dist * dspeed;
+
+        // offset from clustering
+        double ox_cluster = 0, oy_cluster = 0;
+
+        // aggregate offsets then normalize
+        for (int i = 0; i < sheeps.length; ++i) {
+            // skip this sheep itself
+            if (i == sheepId) continue;
+
+            double d = distance(thisSheep, sheeps[i]);
+
+            // ignore overlapping sheep
+            if (d < 1.0 && d > 0) { // 1.0 = CLUSTER_DIST
+                // add an unit vector to x-axis, y-axis
+                ox_cluster += ((thisSheep.x - sheeps[i].x) / d);
+                oy_cluster += ((thisSheep.y - sheeps[i].y) / d);
+            }
+        }
+        // normalize by length
+        double l = Math.sqrt(ox_cluster * ox_cluster + oy_cluster * oy_cluster);
+        if (l != 0) {
+            ox_cluster = ox_cluster / l * 0.05; // 0.05 = CLUSTER_SPEED
+            oy_cluster = oy_cluster / l * 0.05;
+        }
+
+        double ox = ox_dog + ox_cluster, oy = oy_dog + oy_cluster;
+        
+        Point npos = updatePosition(thisSheep, ox, oy);
+
+        return npos;
+
+    }
+
+    // update the current point according to the offsets
+    Point updatePosition(Point now, double ox, double oy) {
+        double nx = now.x + ox, ny = now.y + oy;
+		double dimension = 100.0;
+        // hit the left fence        
+        if (nx < 0) {
+            //            System.err.println("SHEEP HITS THE LEFT FENCE!!!");
+
+            // move the point to the left fence
+            Point temp = new Point(0, now.y);
+            // how much we have already moved in x-axis?
+            double moved = 0 - now.x;
+            // how much we still need to move
+            // BUT in opposite direction
+            double ox2 = -(ox - moved); 
+            return updatePosition(temp, ox2, oy);
+        }
+        // hit the right fence
+        if (nx > dimension) {
+            //            System.err.println("SHEEP HITS THE RIGHT FENCE!!!");
+
+            // move the point to the right fence
+            Point temp = new Point(dimension, now.y);
+            double moved = (dimension - now.x);
+            double ox2 = -(ox - moved);
+            return updatePosition(temp, ox2, oy);
+        }
+        // hit the up fence
+        if (ny < 0) {
+            //            System.err.println("SHEEP HITS THE UP FENCE!!!");
+
+            // move the point to the up fence
+            Point temp = new Point(now.x, 0);
+            double moved = 0 - now.y;
+            double oy2 = -(oy - moved);
+            return updatePosition(temp, ox, oy2);
+        }
+        // hit the bottom fence
+        if (ny > dimension) {
+            //            System.err.println("SHEEP HITS THE BOTTOM FENCE!!!");
+
+            Point temp = new Point(now.x, dimension);
+            double moved = (dimension - now.y);
+            double oy2 = -(oy - moved);
+            return updatePosition(temp, ox, oy2);
+        }
+
+        assert nx >= 0 && nx <= dimension;
+        assert ny >= 0 && ny <= dimension;
+        
+        // hit the middle fence
+        if (hitTheFence(now.x, now.y, nx, ny)) {
+            //            System.err.println("SHEEP HITS THE CENTER FENCE!!!");
+            //            System.err.println(nx + " " + ny);
+            //            System.err.println(ox + " " + oy);
+
+            // move the point to the fence
+            Point temp = new Point(50, now.y);
+            double moved = (50 - now.x);
+            double ox2 = -(ox-moved);
+            return updatePosition(temp, ox2, oy);
+        }
+
+        // otherwise, we are good
+        return new Point(nx, ny);
+    }
+	
+    boolean hitTheFence(double x1, double y1,
+                        double x2, double y2) {
+        double dimension = 100.0;
+        // on the same side
+        if (getSide(x1,y1) == getSide(x2, y2))
+            return false;
+
+        // one point is on the fence
+        if (getSide(x1,y1) == 2 || getSide(x2,y2) == 2)
+            return false;
+        
+        // compute the intersection with (50, y3)
+        // (y3-y1)/(50-x1) = (y2-y1)/(x2-x1)
+
+        double y3 = (y2-y1)/(x2-x1)*(50-x1)+y1;
+
+        assert y3 >= 0 && y3 <= dimension;
+
+        // pass the openning?
+        if (y3 >= 49.0 && y3 <= 51.0)
+            return false;
+        else
+            return true;
+    }
+	
+    int getSide(double x, double y) {
+   		double dimension = 100.0;
+        if (x < dimension * 0.5)
+            return 0;
+        else if (x > dimension * 0.5)
+            return 1;
+        else
+            return 2;
+    }
+	
+	
+	
 
 }
