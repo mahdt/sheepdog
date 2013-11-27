@@ -51,9 +51,9 @@ public class Player extends sheepdog.sim.Player {
 		
 		// TODO: If there are more dogs than black sheep, move out the center dogs instead of assigning by ID
 		// TODO: Perhaps task dogs who are "done" to try to push white sheep out of the way
-		// TODO: Unreliable when number of sheep is more than about 150-200 (and sometimes still unlucky when less).
-		//		 If any white sheep make it across by accident, find a way to get them back
-		// TODO: Dogs will sometimes throw unexpected exceptions, need to handle this
+		// TODO: If any white sheep make it across by accident, find a way to get them back
+		// TODO: If a black sheep is inadvertently delivered by a dog who was not targeting it, exceptions will happen
+		// TODO: Use both modes to empirically determine the dog/sheep ratio at which 1-by-1 is faster than convex hull
 		if (mode) {
 			
 			if (id > nblacks) return current;
