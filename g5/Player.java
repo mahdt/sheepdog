@@ -5,16 +5,16 @@ import java.util.*;
 
 public class Player extends sheepdog.sim.Player {
 
-	private final double EPSILON = 0.0001;
+	private final double EPSILON = 0.000001;
 	private int nblacks;
 	private boolean mode;
 	private double speed;
 	private Point[] travelShape, undeliveredSheep;
 	private LinkedList<Point> travelTraj;
-	private boolean dogOnTraj, goCW, recompute, directionSet;
-	private Point desired, current, center, lastVertex, desiredSheep;
+	private boolean dogOnTraj, goCW, recompute, directionSet, targetingSheep, advDone;
+	private Point desired, current, center, frontWall, backWall, lastVertex, desiredSheep;
 	private int phase;
-	private int currentDelay, initialDelay, chosenSheep;
+	private int ndogs, currentDelay, initialDelay, sheepGrabbed, chosenSheep;
 	private static final int maxTicks = 60;
 	private boolean endGame;
 
@@ -23,31 +23,42 @@ public class Player extends sheepdog.sim.Player {
 	public void init(int nblacks, boolean mode) {
 		this.nblacks = nblacks;
 		this.mode = mode;
-		this.phase = 0;
-		this.speed = 2;
-		this.dogOnTraj = false;
-		this.phase = 0;
-		this.chosenSheep = -1;
-		this.goCW = this.id % 2 == 0;
-		this.recompute = true;
-		this.currentDelay = 0;
-		this.initialDelay = 0;
-		this.center = new Point(50.0, 50.0);
+		phase = 0;
+		speed = 2;
+		dogOnTraj = false;
+		phase = 0;
+		chosenSheep = -1;
+		goCW = this.id % 2 == 0;
+		recompute = true;
+		currentDelay = 0;
+		initialDelay = 0;
+		center = new Point(50.0, 50.0);
+		frontWall = new Point(0.0 + EPSILON, 50.0);
+		backWall = new Point(100.0 - EPSILON, 50.0);
 		travelTraj = new LinkedList<Point>();
-		this.directionSet = false;
-		//mult = 0;
-		//dirFlags = new boolean[4];
-		//Arrays.fill(dirFlags, false);
+		directionSet = false;
+		targetingSheep = false;
+		sheepGrabbed = -1;
+		advDone = false;
 	}
 
 
 	// returns the next position for the dog to move to
 	public Point move(Point[] dogs, Point[] sheeps) {
 		
+		ndogs = dogs.length;
 		current = dogs[id - 1];
-		// advanced mode?
-		if (mode) {
 		
+		// TODO: If there are more dogs than black sheep, move out the center dogs instead of assigning by ID
+		// TODO: Perhaps task dogs who are "done" to try to push white sheep out of the way
+		// TODO: Unreliable when number of sheep is more than about 150-200 (and sometimes still unlucky when less).
+		//		 If any white sheep make it across by accident, find a way to get them back
+		// TODO: Dogs will sometimes throw unexpected exceptions, need to handle this
+		if (mode) {
+			
+			if (id > nblacks) return current;
+			if (advDone) return moveDog(current, current.x > 50.0 ? backWall : frontWall, 2.0 - EPSILON);
+			
 			if (phase == 0) {
 				desired = new Point(center);
 				if (current.equals(center)) phase++;
@@ -55,25 +66,24 @@ public class Player extends sheepdog.sim.Player {
 			}
 			
 			else {
-				if (chosenSheep > -1) {
-					if (getSide(sheeps[chosenSheep].x, sheeps[chosenSheep].y) == 0) chosenSheep = -1;
+				int nBlacksLeft = computeUndeliveredSheep(sheeps, true).length;
+				if (!targetingSheep || sheeps[chosenSheep].x <= 50.0) {
+					targetingSheep = true;
+					sheepGrabbed++;
+					chosenSheep = (id - 1) + ndogs * sheepGrabbed;
+					if (chosenSheep >= nblacks) {
+						advDone = true;
+						return moveDog(current, current.x > 50.0 ? backWall : frontWall, 2.0 - EPSILON);
+					}
 				}
-			
-				if (chosenSheep < 0) {
-					undeliveredSheep = computeUndeliveredSheep(sheeps, true);
-					chosenSheep = (int) (Math.random() * undeliveredSheep.length);				
-				}
-			
-				desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
-			
-				desired = getUnitDirection(center, desiredSheep);
+	
+				//desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
+				desiredSheep = sheeps[chosenSheep];
+				desired = getDirectionOfLength(1.0, center, desiredSheep);
 				desired.x += desiredSheep.x;
 				desired.y += desiredSheep.y;
-			
 				return moveDog(current, desired, 2.0 - EPSILON);
 			}
-			
-			
 		}
 		
 		else {
@@ -178,7 +188,7 @@ public class Player extends sheepdog.sim.Player {
 	public Point[] computeUndeliveredSheep(Point[] sheep, boolean black) {
 		ArrayList<Point> temp = new ArrayList<Point>();
 		for (int i = 0; i < (black ? nblacks : sheep.length); i++) {
-			if (sheep[i].x > 50.0 + EPSILON) temp.add(sheep[i]);
+			if (sheep[i].x > 50.0) temp.add(sheep[i]);
 		}
 		return temp.toArray(new Point[temp.size()]);
 	}
@@ -193,18 +203,27 @@ public class Player extends sheepdog.sim.Player {
 		if (length > 2.0) {
 			vector.x /= length; vector.x *= speed - EPSILON;
 			vector.y /= length; vector.y *= speed - EPSILON;
-			return new Point(current.x + vector.x, current.y + vector.y);
+			return clamp(new Point(current.x + vector.x, current.y + vector.y));
 		}
 		// if dog is within 2 meters of desired point, move exactly to that point
-		return desired;
+		return clamp(desired);
+	}
+	
+	public Point clamp(Point p) {
+		Point n = new Point(p);
+		if (n.x > 100.0 - EPSILON) n.x = 100.0 - EPSILON;
+		else if (n.x < 0.0 + EPSILON) n.x = 0.0 + EPSILON;
+		if (n.y < 0.0 + EPSILON) n.y = 0.0 + EPSILON;
+		else if (n.y > 100.0 - EPSILON) n.y = 100.0 - EPSILON;
+		return n;
 	}
 	
 	// computes unit vector between two points
-	public Point getUnitDirection(Point current, Point desired) {
+	public Point getDirectionOfLength(double length, Point current, Point desired) {
 		Point vector = new Point(desired.x - current.x, desired.y - current.y);
-		double length = Math.sqrt(vector.x*vector.x + vector.y*vector.y);
-		vector.x /= length;
-		vector.y /= length;
+		double mag = Math.sqrt(vector.x*vector.x + vector.y*vector.y);
+		vector.x /= mag; vector.x *= length;
+		vector.y /= mag; vector.y *= length;
 		return new Point(vector.x, vector.y);
 	}
 	
@@ -329,7 +348,7 @@ public class Player extends sheepdog.sim.Player {
 	}
 	
 	
-	
+	/*
 	
 	Point moveSheep(Point[] sheeps, int sheepId) {
         Point thisSheep = sheeps[sheepId];
@@ -483,7 +502,7 @@ public class Player extends sheepdog.sim.Player {
             return 2;
     }
 	
-	
+	*/
 	
 
 }
