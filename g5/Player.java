@@ -117,27 +117,10 @@ public class Player extends sheepdog.sim.Player {
 				// if the desired point is reached
 				if (current.equals(desired)) {
 					dogOnTraj = false;
-					if (phase == 0) {
-						phase++;
-					}
-					if (phase == 1) {
-						lastVertex = current;
-						phase++;
-						speed = endGame ? 0.5 : 1.0;
-						desired = center;
-						dogOnTraj = true;
-					}
-					else if (phase == 2) {
-						phase--;
-						speed = endGame ? 0.75 : 2;
-					}
+					if (phase == 0) phase++;
+					speed = endGame ? 0.5 : 2;
 				}
-				else if (phase == 2) {
-					desired = lastVertex;
-				}
-				else {
-					return (moveDog(current, desired, speed));
-				}
+				else return (moveDog(current, desired, speed));
 			}
 
 			// phase 0: move dog to gate
@@ -155,7 +138,8 @@ public class Player extends sheepdog.sim.Player {
 				// recomputes the hull for first traversal and each time a hull has been fully traversed
 				if (recompute) {
 					// compute the hull and grow it to get the dog's path
-					travelShape = growHull(computeHull(undeliveredSheep));
+					travelShape = computeFullPath(growHull(computeHull(undeliveredSheep)), 0.75);
+					//travelShape = growHull(computeHull(undeliveredSheep));
 					travelTraj.clear();
 					for (int i = 0; i < travelShape.length; i++) {
 						if (!goCW) travelTraj.push(travelShape[i]);
@@ -203,18 +187,18 @@ public class Player extends sheepdog.sim.Player {
 		if (length > 2.0) {
 			vector.x /= length; vector.x *= speed - EPSILON;
 			vector.y /= length; vector.y *= speed - EPSILON;
-			return clamp(new Point(current.x + vector.x, current.y + vector.y));
+			return clamp(new Point(current.x + vector.x, current.y + vector.y), 0.0, 100.0, 0.0, 100.0);
 		}
 		// if dog is within 2 meters of desired point, move exactly to that point
-		return clamp(desired);
+		return clamp(desired, 0.0, 100.0, 0.0, 100.0);
 	}
 	
-	public Point clamp(Point p) {
+	public Point clamp(Point p, double up, double down, double left, double right) {
 		Point n = new Point(p);
-		if (n.x > 100.0 - EPSILON) n.x = 100.0 - EPSILON;
-		else if (n.x < 0.0 + EPSILON) n.x = 0.0 + EPSILON;
-		if (n.y < 0.0 + EPSILON) n.y = 0.0 + EPSILON;
-		else if (n.y > 100.0 - EPSILON) n.y = 100.0 - EPSILON;
+		if (n.x > right - EPSILON) n.x = right - EPSILON;
+		else if (n.x < left + EPSILON) n.x = left + EPSILON;
+		if (n.y < up + EPSILON) n.y = up + EPSILON;
+		else if (n.y > down - EPSILON) n.y = down - EPSILON;
 		return n;
 	}
 	
@@ -347,162 +331,19 @@ public class Player extends sheepdog.sim.Player {
 		return computeHull(newPoints);
 	}
 	
-	
-	/*
-	
-	Point moveSheep(Point[] sheeps, int sheepId) {
-        Point thisSheep = sheeps[sheepId];
-        double dspeed = 0;
-        System.out.println("current: ");
-        System.out.println(current.x + ", " + current.y);
-        Point closestDog = current;
-        double dist = distance(thisSheep, closestDog);
-        assert dist > 0;
-
-        if (dist < 2.0) // run dist
-            dspeed = 1.0; // run speed
-        else if (dist < 10.0) // walk dist
-            dspeed = 0.1; // walk speed
-        
-        // offset from dogs
-        double ox_dog = (thisSheep.x - closestDog.x) / dist * dspeed;
-        double oy_dog = (thisSheep.y - closestDog.y) / dist * dspeed;
-
-        // offset from clustering
-        double ox_cluster = 0, oy_cluster = 0;
-
-        // aggregate offsets then normalize
-        for (int i = 0; i < sheeps.length; ++i) {
-            // skip this sheep itself
-            if (i == sheepId) continue;
-
-            double d = distance(thisSheep, sheeps[i]);
-
-            // ignore overlapping sheep
-            if (d < 1.0 && d > 0) { // 1.0 = CLUSTER_DIST
-                // add an unit vector to x-axis, y-axis
-                ox_cluster += ((thisSheep.x - sheeps[i].x) / d);
-                oy_cluster += ((thisSheep.y - sheeps[i].y) / d);
-            }
-        }
-        // normalize by length
-        double l = Math.sqrt(ox_cluster * ox_cluster + oy_cluster * oy_cluster);
-        if (l != 0) {
-            ox_cluster = ox_cluster / l * 0.05; // 0.05 = CLUSTER_SPEED
-            oy_cluster = oy_cluster / l * 0.05;
-        }
-
-        double ox = ox_dog + ox_cluster, oy = oy_dog + oy_cluster;
-        
-        Point npos = updatePosition(thisSheep, ox, oy);
-
-        return npos;
-
-    }
-
-    // update the current point according to the offsets
-    Point updatePosition(Point now, double ox, double oy) {
-        double nx = now.x + ox, ny = now.y + oy;
-		double dimension = 100.0;
-        // hit the left fence        
-        if (nx < 0) {
-            //            System.err.println("SHEEP HITS THE LEFT FENCE!!!");
-
-            // move the point to the left fence
-            Point temp = new Point(0, now.y);
-            // how much we have already moved in x-axis?
-            double moved = 0 - now.x;
-            // how much we still need to move
-            // BUT in opposite direction
-            double ox2 = -(ox - moved); 
-            return updatePosition(temp, ox2, oy);
-        }
-        // hit the right fence
-        if (nx > dimension) {
-            //            System.err.println("SHEEP HITS THE RIGHT FENCE!!!");
-
-            // move the point to the right fence
-            Point temp = new Point(dimension, now.y);
-            double moved = (dimension - now.x);
-            double ox2 = -(ox - moved);
-            return updatePosition(temp, ox2, oy);
-        }
-        // hit the up fence
-        if (ny < 0) {
-            //            System.err.println("SHEEP HITS THE UP FENCE!!!");
-
-            // move the point to the up fence
-            Point temp = new Point(now.x, 0);
-            double moved = 0 - now.y;
-            double oy2 = -(oy - moved);
-            return updatePosition(temp, ox, oy2);
-        }
-        // hit the bottom fence
-        if (ny > dimension) {
-            //            System.err.println("SHEEP HITS THE BOTTOM FENCE!!!");
-
-            Point temp = new Point(now.x, dimension);
-            double moved = (dimension - now.y);
-            double oy2 = -(oy - moved);
-            return updatePosition(temp, ox, oy2);
-        }
-
-        assert nx >= 0 && nx <= dimension;
-        assert ny >= 0 && ny <= dimension;
-        
-        // hit the middle fence
-        if (hitTheFence(now.x, now.y, nx, ny)) {
-            //            System.err.println("SHEEP HITS THE CENTER FENCE!!!");
-            //            System.err.println(nx + " " + ny);
-            //            System.err.println(ox + " " + oy);
-
-            // move the point to the fence
-            Point temp = new Point(50, now.y);
-            double moved = (50 - now.x);
-            double ox2 = -(ox-moved);
-            return updatePosition(temp, ox2, oy);
-        }
-
-        // otherwise, we are good
-        return new Point(nx, ny);
-    }
-	
-    boolean hitTheFence(double x1, double y1,
-                        double x2, double y2) {
-        double dimension = 100.0;
-        // on the same side
-        if (getSide(x1,y1) == getSide(x2, y2))
-            return false;
-
-        // one point is on the fence
-        if (getSide(x1,y1) == 2 || getSide(x2,y2) == 2)
-            return false;
-        
-        // compute the intersection with (50, y3)
-        // (y3-y1)/(50-x1) = (y2-y1)/(x2-x1)
-
-        double y3 = (y2-y1)/(x2-x1)*(50-x1)+y1;
-
-        assert y3 >= 0 && y3 <= dimension;
-
-        // pass the openning?
-        if (y3 >= 49.0 && y3 <= 51.0)
-            return false;
-        else
-            return true;
-    }
-	
-    int getSide(double x, double y) {
-   		double dimension = 100.0;
-        if (x < dimension * 0.5)
-            return 0;
-        else if (x > dimension * 0.5)
-            return 1;
-        else
-            return 2;
-    }
-	
-	*/
-	
+	public Point[] computeFullPath(Point[] grownHull, double moveInDistance) {
+		ArrayList<Point> fullPath = new ArrayList<Point>();
+		
+		for (int i = 0; i < grownHull.length; i++) {
+			fullPath.add(grownHull[i]);
+			Point inPoint = getDirectionOfLength(moveInDistance, grownHull[i], center);
+			inPoint.x += grownHull[i].x;
+			inPoint.y += grownHull[i].y;
+			fullPath.add(clamp(inPoint, 0.0, 100.0, 52.0, 100.0));
+			fullPath.add(grownHull[i]);
+		}
+		
+		return fullPath.toArray(new Point[fullPath.size()]);
+	}
 
 }
