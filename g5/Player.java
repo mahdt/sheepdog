@@ -5,19 +5,39 @@ import java.util.*;
 
 public class Player extends sheepdog.sim.Player {
 
-	private final double EPSILON = 0.0001;
-	private int nblacks;
-	private boolean mode;
+	// constants
+	private final int MAX_INITIAL_WAIT_TICKS = 60;
+	private final double EPSILON = 0.000001;
+	private final double FENCE_CENTER = 50.0;
+	private final double FENCE_LEFT = 0.0;
+	private final double FENCE_RIGHT = 100.0;
+	private final double FENCE_TOP = 0.0;
+	private final double FENCE_BOTTOM = 100.0;
+	private final Point CENTER = new Point(FENCE_CENTER, FENCE_CENTER);
+	private final Point LEFT_WALL = new Point(FENCE_LEFT, FENCE_CENTER);
+	private final Point RIGHT_WALL = new Point(FENCE_RIGHT, FENCE_CENTER);
+	private final double DOG_MAX_SPEED = 2.0;
+	
+	// tweakable parameters
+	private final double SHEEP_FOLLOW_DISTANCE = 1.0; // distance behind a sheep a dog should try to stay in 1-by-1 strategy
+	private final double HULL_GROWTH_RADIUS = 1.5; // distance to grow out the hull by
+	private final double HULL_GROWTH_ENDGAME_MULT = 2.5; // multiplier on growth distance when endgame state is reached
+	private final double HULL_TRAVERSAL_SPEED = 2.0; // how quickly the dog should traverse the hull
+	private final double VERTEX_PUSH_DISTANCE = 0.85; // how far the dog should push towards the CENTER at each vertex of the hull
+	private final double MIN_PUSH_X_VAL = 52.0; // the minimum x value that a dog pushing towards the CENTER can push to
+	private final double ENDGAME_SHEEP_X_THRESHOLD = 51.0; // the maximum x value of all sheep that determines when to enter endgame state
+	private final double ENDGAME_SPEED = 0.5; // how quickly the dog should travel in endgame state (normal mode)
+	private final double MIN_VERTICAL_GATE_DIST = 8.0; // minimum vertical distance from the gate when computing the hull
+	private final double MIN_VERTICAL_GATE_DIST_ENDGAME = 4.0; // same as above, but for endgame
+	
+	// instance variables
+	private int nblacks, phase, ndogs, currentDelay, initialDelay, sheepGrabbed, chosenSheep;
 	private double speed;
+	private boolean mode, dogOnTraj, goCW, recompute, directionSet, targetingSheep, advDone, endGame, herdSet;
+	private Point desired, current, lastVertex, desiredSheep;
+	private int[] remainingSheep;
 	private Point[] travelShape, undeliveredSheep, sheepLocations;
 	private LinkedList<Point> travelTraj;
-	private boolean dogOnTraj, goCW, recompute, directionSet, targetingSheep, advDone;
-	private Point desired, current, center, frontWall, backWall, lastVertex, desiredSheep;
-	private int phase;
-	private int ndogs, currentDelay, initialDelay, sheepGrabbed, chosenSheep;
-	private static final int maxTicks = 60;
-	private boolean endGame;
-	private boolean[] sheepIsAssigned;
 
 
 	// initialize our player
@@ -33,128 +53,262 @@ public class Player extends sheepdog.sim.Player {
 		recompute = true;
 		currentDelay = 0;
 		initialDelay = 0;
-		center = new Point(50.0, 50.0);
-		frontWall = new Point(0.0 + EPSILON, 50.0);
-		backWall = new Point(100.0 - EPSILON, 50.0);
 		travelTraj = new LinkedList<Point>();
 		directionSet = false;
 		targetingSheep = false;
 		sheepGrabbed = -1;
 		advDone = false;
-		sheepIsAssigned = new boolean[nblacks];
-		Arrays.fill(sheepIsAssigned, false);
+		herdSet = false;
 	}
 
 
 	// returns the next position for the dog to move to
 	public Point move(Point[] dogs, Point[] sheeps) {
-		
+
 		ndogs = dogs.length;
 		current = dogs[id - 1];
-		
-		// TODO: If there are more dogs than black sheep, move out the center dogs instead of assigning by ID
-		// TODO: Perhaps task dogs who are "done" to try to push white sheep out of the way
-		// TODO: If any white sheep make it across by accident, find a way to get them back
-		// TODO: If a black sheep is inadvertently delivered by a dog who was not targeting it, exceptions will happen
-		// TODO: Use both modes to empirically determine the dog/sheep ratio at which 1-by-1 is faster than convex hull
+
 		if (mode) {
+			
+			System.out.println("Phase for dog " + id + ": " + phase);
+			
+			if (phase == 0) {
+				targetingSheep = false;
+				desired = CENTER;
+				if (approxEqual(current, CENTER)) {
+					phase = 1;
+				}
+				return moveDog(current, desired, DOG_MAX_SPEED);
+			}
+			if (phase == 1) {
+				if (!targetingSheep || sheeps[chosenSheep].x < FENCE_CENTER) {
+					targetingSheep = true;
+					remainingSheep = computeSheepOnSide(sheeps, true, false);
+					if (remainingSheep == null) {
+						phase = 2;
+						return moveDog(current, CENTER, DOG_MAX_SPEED);
+					}
+					System.out.println("remaining sheep for dog " + id + ": " + remainingSheep.length);
+					do {
+						chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+					} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+					System.out.println("Chosen sheep for dog " + id + ": " + chosenSheep);
+					if (current.x < FENCE_CENTER) return moveDog(current, CENTER, DOG_MAX_SPEED);
+				}
+				if (sheepBeingPursued(dogs, current, sheeps[chosenSheep])) {
+					do {
+						chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+					} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+				}
+				desiredSheep = sheeps[chosenSheep];
+				desired = getDirectionOfLength(SHEEP_FOLLOW_DISTANCE, CENTER, desiredSheep);
+				desired.x += desiredSheep.x;
+				desired.y += desiredSheep.y;
+				return moveDog(current, desired, DOG_MAX_SPEED);
+			}
+			if (phase == 2) {
+				targetingSheep = false;
+				desired = CENTER;
+				if (approxEqual(current, CENTER)) {
+					phase = 3;
+				}
+				return moveDog(current, desired, DOG_MAX_SPEED);
+			}
+			if (phase == 3) {
+				if (!targetingSheep || sheeps[chosenSheep].x > FENCE_CENTER) {
+					targetingSheep = true;
+					remainingSheep = computeSheepOnSide(sheeps, false, true);
+					if (remainingSheep == null) {
+						phase = 0;
+						return moveDog(current, CENTER, DOG_MAX_SPEED);
+					}
+					do {
+						chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+					} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+					if (current.x > FENCE_CENTER) return moveDog(current, CENTER, DOG_MAX_SPEED);
+				}
+				if (sheepBeingPursued(dogs, current, sheeps[chosenSheep])) {
+					do {
+						chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+					} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+				}
+				desiredSheep = sheeps[chosenSheep];
+				desired = getDirectionOfLength(SHEEP_FOLLOW_DISTANCE, CENTER, desiredSheep);
+				desired.x += desiredSheep.x;
+				desired.y += desiredSheep.y;
+				return moveDog(current, desired, DOG_MAX_SPEED);
+			}
+			
+			/*
+			
 			System.out.println("Dog ID " + id + " is in phase: " + phase);
 			if (id > nblacks) return current;
-			if (advDone && !isLastDog(dogs)) return moveDog(current, current.x > 50.0 ? backWall : frontWall, 2.0 - EPSILON);
+			if (advDone && !isLastDog(dogs)) return moveDog(current, current.x > 50.0 ? RIGHT_WALL : LEFT_WALL, 2.0);
+			int nBlacksLeft = computeUndeliveredSheepIndices(sheeps, true).size();
+			if (nBlacksLeft == 0 && advDone && approxEqual(current, RIGHT_WALL)) {
+				phase = 0;
+				sheepGrabbed = -1;
+				chosenSheep = -1;
+				targetingSheep = false;
+				return moveDog(current, CENTER, 2.0);
+			}
 			if (phase == 0) {
 				System.out.println("dog " + id + " is running phase 0");
-				desired = new Point(center);
-				if (current.equals(center)) {
-					phase += advDone ? 2 : 1;
+				desired = new Point(CENTER);
+				System.out.println("IN PHASE 0");
+				if (current.equals(CENTER)) {
+					phase = advDone ? 2 : 1;
+					System.out.println("GOING INTO PHASE 2");
 				}
-				else return moveDog(current, center, 2.0 - EPSILON);
+				else return moveDog(current, CENTER, 2.0);
 			}
 			else if (phase == 1) {
 				//int nBlacksLeft = computeUndeliveredSheep(sheeps, true).length;
-				LinkedList<Integer> undeliveredIndices = computeUndeliveredSheepIndices(sheeps, true);
-				int nBlacksLeft = undeliveredIndices.size();
-				if (!targetingSheep || sheeps[chosenSheep].x <= 50.0) {
+				//LinkedList<Integer> undeliveredIndices = computeUndeliveredSheepIndices(sheeps, true);
+				//int nBlacksLeft = undeliveredIndices.size();
+				//int nBlacksLeft = computeUndeliveredSheepIndices(sheeps, true).size();
+				if (chosenSheep < sheeps.length && (!targetingSheep || sheeps[chosenSheep].x <= 50.0)) {
 					targetingSheep = true;
 					sheepGrabbed++;
 					chosenSheep = (id - 1) + ndogs * sheepGrabbed;
-					//chosenSheep = undeliveredIndices.get((id-1)+ndogs*sheepGrabbed);
-					int index = 0;
-					/*while(sheepIsAssigned(index, sheeps, dogs)){
-						index++;
-						chosenSheep = undeliveredIndices.get(index);
-					}*/
 					while(chosenSheep<sheeps.length && sheeps[chosenSheep].x <= 50){
 						sheepGrabbed++;
 						chosenSheep = (id - 1) + ndogs * sheepGrabbed;
 					}
-					//sheepIsAssigned[chosenSheep] = true;
-
 				}
 				System.out.println("chosen Sheep for dog " + id + ":" + chosenSheep);
 				if (chosenSheep >= nblacks) {
 					advDone = true;
 					if (isLastDog(dogs)) phase = 0;
-					System.out.println("Moving to backWall");
-					return moveDog(current, current.x > 50.0 ? backWall : frontWall, 2.0 - EPSILON);
+					System.out.println("Moving to RIGHT_WALL");
+					return moveDog(current, current.x > 50.0 ? RIGHT_WALL : LEFT_WALL, 2.0);
 				}
-				//desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
 				desiredSheep = sheeps[chosenSheep];
-				desired = getDirectionOfLength(1.0, center, desiredSheep);
+				desired = getDirectionOfLength(1.0, CENTER, desiredSheep);
 				desired.x += desiredSheep.x;
 				desired.y += desiredSheep.y;
-				return moveDog(current, desired, 1.0 - EPSILON);
+				return moveDog(current, desired, 2.0);
 			}
-				
-			else if (phase == 2) {
-				//Point[] whiteSheepOnLeft = computeDeliveredSheepOfOneColor(sheeps, false);
-				int chosenSheep = nblacks;
-				while(sheeps[chosenSheep].x>=50){
+
+			else if (phase == 2 || phase == 3) {
+			
+				int chosenSheep = phase == 2 ? nblacks : 0;
+				while (phase == 2 ? sheeps[chosenSheep].x >= 50.0 : sheeps[chosenSheep].x <= 50.0) {
 					chosenSheep++;
-					if(chosenSheep>=sheeps.length){
-						phase = 3;
-						return current;
-					
+					if (phase == 2 ? chosenSheep >= sheeps.length : chosenSheep >= nblacks) {
+						phase = phase == 2 ? 3 : 2;
+						return moveDog(current, CENTER, 2.0);
 					}
 				}
-				
-				//desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
 				desiredSheep = sheeps[chosenSheep];
-				desired = getDirectionOfLength(1.0, center, desiredSheep);
+				desired = getDirectionOfLength(1.0, CENTER, desiredSheep);
 				desired.x += desiredSheep.x;
 				desired.y += desiredSheep.y;
-				return moveDog(current, desired, 1.0 - EPSILON);
+				return moveDog(current, desired, 2.0);
 				
 			}
 			
-			else if (phase == 3) {
-				
-				int chosenSheep = 0;
-				while(sheeps[chosenSheep].x<=50){
-					chosenSheep++;
-					if(chosenSheep>=nblacks){
-						phase = 2;
-						return current;
-					
-					}
-				}
-				
-				//desiredSheep = moveSheep(undeliveredSheep, chosenSheep);
-				desiredSheep = sheeps[chosenSheep];
-				desired = getDirectionOfLength(1.0, center, desiredSheep);
-				desired.x += desiredSheep.x;
-				desired.y += desiredSheep.y;
-				return moveDog(current, desired, 2.0 - EPSILON);
-				
-			}
+			*/
 		}
-		
+
 		else {
-		
+			
+			//double thresholdRatio = -0.053 * (double) sheeps.length + 22.33;
+			//double thresholdRatio = -0.030 * (double) sheeps.length + 19.24;
+			double thresholdRatio = 330.26 * Math.pow(sheeps.length, -0.654);
+			//double actualRatio = (double) computeUndeliveredSheepIndices(sheeps, false).size() / (double) dogs.length;
+			double actualRatio = (double) sheeps.length / (double) dogs.length;
+			
+			boolean initialHerd = false;
+			if (!herdSet) {
+				initialHerd = actualRatio >= thresholdRatio;
+				herdSet = true;
+			}
+			boolean herd = actualRatio >= thresholdRatio;
+			
+			System.out.println("threshold: " + thresholdRatio + ", actual: " + actualRatio);
+			
+			if (dogs.length == 1 || !herd) {
+			
+				if (phase == 0) {
+					targetingSheep = false;
+					desired = CENTER;
+					if (approxEqual(current, CENTER)) {
+						phase = 1;
+					}
+					return moveDog(current, desired, DOG_MAX_SPEED);
+				}
+				if (phase == 1) {
+					if (!targetingSheep || sheeps[chosenSheep].x < FENCE_CENTER) {
+						targetingSheep = true;
+						remainingSheep = computeUndeliveredSheepNormal(sheeps);
+						if (remainingSheep == null) {
+							phase = 2;
+							return moveDog(current, CENTER, DOG_MAX_SPEED);
+						}
+						System.out.println("remaining sheep for dog " + id + ": " + remainingSheep.length);
+						do {
+							chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+						} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+						System.out.println("Chosen sheep for dog " + id + ": " + chosenSheep);
+						if (current.x < FENCE_CENTER) return moveDog(current, CENTER, DOG_MAX_SPEED);
+					}
+					if (sheepBeingPursued(dogs, current, sheeps[chosenSheep])) {
+						do {
+							chosenSheep = remainingSheep[(int) (Math.random() * remainingSheep.length)];
+						} while (sheepBeingPursued(dogs, current, sheeps[chosenSheep]) && remainingSheep.length > dogs.length);
+					}
+					desiredSheep = sheeps[chosenSheep];
+					desired = getDirectionOfLength(SHEEP_FOLLOW_DISTANCE, CENTER, desiredSheep);
+					desired.x += desiredSheep.x;
+					desired.y += desiredSheep.y;
+					return moveDog(current, desired, DOG_MAX_SPEED);
+				}
+			
+			/*
+				if (phase == 0) {
+					if (dogs.length != 1 && herd != initialHerd) {
+						phase += 1;
+						return current;
+					}
+					System.out.println("dog " + id + " is running phase 0");
+					desired = new Point(CENTER);
+					if (current.equals(CENTER)) {
+						phase += 1;
+					}
+					else return moveDog(current, CENTER, DOG_MAX_SPEED);
+				}
+				else if (phase == 1) {
+					//int nSheepLeft = computeUndeliveredSheepIndices(sheeps, false).size();
+					if (chosenSheep < sheeps.length && (!targetingSheep || sheeps[chosenSheep].x <= FENCE_CENTER)) {
+						targetingSheep = true;
+						sheepGrabbed++;
+						chosenSheep = (id - 1) + ndogs * sheepGrabbed;
+						while(chosenSheep<sheeps.length && sheeps[chosenSheep].x <= FENCE_CENTER){
+							sheepGrabbed++;
+							chosenSheep = (id - 1) + ndogs * sheepGrabbed;
+						}
+
+					}
+					System.out.println("chosen Sheep for dog " + id + ":" + chosenSheep);
+					if (chosenSheep >= sheeps.length) {
+						System.out.println("Moving to RIGHT_WALL");
+						return moveDog(current, current.x > FENCE_CENTER ? RIGHT_WALL : LEFT_WALL, DOG_MAX_SPEED);
+					}
+					desiredSheep = sheeps[chosenSheep];
+					desired = getDirectionOfLength(SHEEP_FOLLOW_DISTANCE, CENTER, desiredSheep);
+					desired.x += desiredSheep.x;
+					desired.y += desiredSheep.y;
+					return moveDog(current, desired, DOG_MAX_SPEED);
+				}
+			*/
+			}
+
 			if (dogs.length % 2 != 0 && id > dogs.length / 2 + 1 && !directionSet) {
 				goCW = !goCW;
 				directionSet = true;
 			}
-		
+
 			current = dogs[id - 1]; // our current position
 			undeliveredSheep = computeUndeliveredSheep(sheeps, false);
 			if (dogs.length < 3) initialDelay = 0;
@@ -162,25 +316,25 @@ public class Player extends sheepdog.sim.Player {
 				int posFromCenter = 0;
 				if (dogs.length % 2 == 0) posFromCenter = Math.abs(id - dogs.length/2) - (id > dogs.length/2 ? 1 : 0);
 				else posFromCenter = Math.abs(id - dogs.length/2 - 1);
-				initialDelay = (maxTicks/(dogs.length/2))*(posFromCenter);
-				System.out.println("initialDelay for dog "+ id +" is: "+initialDelay+ " and pos from center is " + posFromCenter);
+				initialDelay = (MAX_INITIAL_WAIT_TICKS / (dogs.length / 2)) * posFromCenter;
+				System.out.println("initialDelay for dog "+ id +" is: "+initialDelay+ " and pos from CENTER is " + posFromCenter);
 			}
-			double maxX = 0;		
+			double maxX = 0;                
 			for (int i = 0; i < undeliveredSheep.length; i++) {
 				if (undeliveredSheep[i].x > maxX)
 					maxX = undeliveredSheep[i].x;
 			}
-			endGame = (maxX < 52);
+			endGame = (maxX < ENDGAME_SHEEP_X_THRESHOLD);
 			//Point desired = new Point(99.5, 51);
 			// phase 0 - dog in LH
-		
+
 			// if the dog is moving to a new point
 			if (dogOnTraj) {
 				// if the desired point is reached
 				if (current.equals(desired)) {
 					dogOnTraj = false;
 					if (phase == 0) phase++;
-					speed = endGame ? 0.5 : 2;
+					speed = endGame ? ENDGAME_SPEED : DOG_MAX_SPEED;
 				}
 				else return (moveDog(current, desired, speed));
 			}
@@ -191,7 +345,7 @@ public class Player extends sheepdog.sim.Player {
 					currentDelay++;
 					return current;
 				} 
-				desired = center;
+				desired = CENTER;
 				dogOnTraj = true;
 				recompute = true;
 			}
@@ -200,7 +354,7 @@ public class Player extends sheepdog.sim.Player {
 				// recomputes the hull for first traversal and each time a hull has been fully traversed
 				if (recompute) {
 					// compute the hull and grow it to get the dog's path
-					travelShape = computeFullPath(growHull(computeHull(undeliveredSheep)), 0.75);
+					travelShape = computeFullPath(growHull(computeHull(undeliveredSheep)), VERTEX_PUSH_DISTANCE);
 					//travelShape = growHull(computeHull(undeliveredSheep));
 					travelTraj.clear();
 					for (int i = 0; i < travelShape.length; i++) {
@@ -216,75 +370,102 @@ public class Player extends sheepdog.sim.Player {
 				}
 				// otherwise, pop the next point to navigate to
 				else {
-					desired = travelTraj.pop();	
+					desired = travelTraj.pop();        
 				}
 				dogOnTraj = true;
 			}
 			if (phase == 2) {
-			
+
 			}
-		}	
+		}        
 		// move the dog to the next computed point
-		current = moveDog(current, desired, speed);	
+		current = moveDog(current, desired, speed);        
 
 		return current;
 	}
-	
+
 	// returns the sheep that have not been delivered
 	public Point[] computeUndeliveredSheep(Point[] sheep, boolean black) {
 		ArrayList<Point> temp = new ArrayList<Point>();
 		for (int i = 0; i < (black ? nblacks : sheep.length); i++) {
-			if (sheep[i].x > 50.0) temp.add(sheep[i]);
+			if (sheep[i].x > FENCE_CENTER) temp.add(sheep[i]);
 		}
 		return temp.toArray(new Point[temp.size()]);
 	}
 	
+	// returns the number of sheep of a specified color on a specified side
+	public int[] computeSheepOnSide(Point[] sheep, boolean black, boolean left) {
+		ArrayList<Integer> temp = new ArrayList<Integer>();
+		for (int i = black ? 0 : nblacks; i < (black ? nblacks : sheep.length); i++) {
+			if (left ? sheep[i].x <= FENCE_CENTER : sheep[i].x >= FENCE_CENTER) temp.add(i);
+		}
+		if (temp.isEmpty()) return null;
+		int[] returnVal = new int[temp.size()];
+		for (int i = 0; i < returnVal.length; i++) returnVal[i] = temp.get(i).intValue();
+		return returnVal;
+	}
+
 	public Point[] computeDeliveredSheepOfOneColor(Point[] sheep, boolean black) {
 		ArrayList<Point> temp = new ArrayList<Point>();
-		for (int i = black ? 0 : nblacks - 1; i < (black ? nblacks : sheep.length); i++) {
-			if (sheep[i].x <= 50.0) temp.add(sheep[i]);
+		for (int i = black ? 0 : nblacks; i < (black ? nblacks : sheep.length); i++) {
+			if (sheep[i].x <= FENCE_CENTER) temp.add(sheep[i]);
 		}
 		return temp.toArray(new Point[temp.size()]);
 	}
-	
+
 	// returns the sheep that have not been delivered
 	public LinkedList<Integer> computeUndeliveredSheepIndices(Point[] sheep, boolean black) {
 		LinkedList<Integer> temp = new LinkedList<Integer>();
 		for (int i = 0; i < (black ? nblacks : sheep.length); i++) {
-			if (sheep[i].x > 50.0) temp.add(i);
+			if (sheep[i].x > FENCE_CENTER) temp.add(i);
 		}
 		return temp;
 	}
 	
-	public boolean sheepIsAssigned(int sheepIndex, Point[] sheeps, Point[] dogs){
-	
-		for(int dogIndex = 0;dogIndex<dogs.length;dogIndex++){
-			if(distance(sheeps[sheepIndex],dogs[dogIndex])<2.0 && dogIndex+1!=id){
+	// returns the indices of sheep that have not been delivered (used in normal mode)
+	public int[] computeUndeliveredSheepNormal(Point[] sheep) {
+		ArrayList<Integer> temp = new ArrayList<Integer>();
+		for (int i = 0; i < sheep.length; i++) {
+			if (sheep[i].x > FENCE_CENTER) temp.add(i);
+		}
+		if (temp.isEmpty()) return null;
+		int[] returnVal = new int[temp.size()];
+		for (int i = 0; i < returnVal.length; i++) returnVal[i] = temp.get(i).intValue();
+		return returnVal;
+	}
+
+	public boolean sheepIsAssigned(int sheepIndex, Point[] sheeps, Point[] dogs) {
+		for(int dogIndex = 0;dogIndex<dogs.length;dogIndex++) {
+			if(distance(sheeps[sheepIndex],dogs[dogIndex]) < 2.0 && dogIndex+1!=id){
 				return true;
 			}
-			
 		}
 		return false;
-	
 	}
 	
+	public boolean sheepBeingPursued(Point[] dogs, Point current, Point sheep) {
+		for (int i = 0; i < dogs.length; i++) {
+			if (approxEqual(getDirectionOfLength(1.0, CENTER, dogs[i]), getDirectionOfLength(1.0, CENTER, sheep))
+					&& distance(dogs[i], sheep) < distance(current, sheep)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	public boolean isLastDog(Point[] dogs){
-	
 		System.out.println("In isLastDog()");
 		for(int i = 0;i<dogs.length;i++){
-		
 			System.out.println("In for loop isLastDog()");
-			if(id!=i+1 && !approxEqual(dogs[i], backWall)){
+			if(id!=i+1 && !approxEqual(dogs[i], RIGHT_WALL)){
 				System.out.println("dog "+ i + " is not at the wall");
 				return false;
 			}
-		
 		}
-	
 		return true;
 	}
-	
-	
+
+
 	// given the current point and desired point, computes the direction vector and
 	// moves the dog towards that direction at the specified speed
 	public Point moveDog(Point current, Point desired, double speed) {
@@ -294,12 +475,12 @@ public class Player extends sheepdog.sim.Player {
 		if (length > 2.0) {
 			vector.x /= length; vector.x *= speed - EPSILON;
 			vector.y /= length; vector.y *= speed - EPSILON;
-			return clamp(new Point(current.x + vector.x, current.y + vector.y), 0.0, 100.0, 0.0, 100.0);
+			return clamp(new Point(current.x + vector.x, current.y + vector.y), FENCE_TOP, FENCE_BOTTOM, FENCE_LEFT, FENCE_RIGHT);
 		}
 		// if dog is within 2 meters of desired point, move exactly to that point
-		return clamp(desired, 0.0, 100.0, 0.0, 100.0);
+		return clamp(desired, FENCE_TOP, FENCE_BOTTOM, FENCE_LEFT, FENCE_RIGHT);
 	}
-	
+
 	public Point clamp(Point p, double up, double down, double left, double right) {
 		Point n = new Point(p);
 		if (n.x > right - EPSILON) n.x = right - EPSILON;
@@ -308,7 +489,7 @@ public class Player extends sheepdog.sim.Player {
 		else if (n.y > down - EPSILON) n.y = down - EPSILON;
 		return n;
 	}
-	
+
 	// computes unit vector between two points
 	public Point getDirectionOfLength(double length, Point current, Point desired) {
 		Point vector = new Point(desired.x - current.x, desired.y - current.y);
@@ -317,19 +498,19 @@ public class Player extends sheepdog.sim.Player {
 		vector.y /= mag; vector.y *= length;
 		return new Point(vector.x, vector.y);
 	}
-	
+
 	// distance
 	public double distance(Point current, Point desired) {
 		Point vector = new Point(desired.x - current.x, desired.y - current.y);
 		return Math.sqrt(vector.x*vector.x + vector.y*vector.y);
 	}
-	
+
 	public boolean approxEqual(Point a, Point b) {
 		if (Math.abs(a.x - b.x) > EPSILON) return false;
 		if (Math.abs(a.y - b.y) > EPSILON) return false;
 		return true;
 	}
-	
+
 	// inner class to represent a node in our convex hull computation
 	class SheepNode implements Comparable<SheepNode>{
 		public double distance, angle;
@@ -371,11 +552,11 @@ public class Player extends sheepdog.sim.Player {
 			if (sheep[i].y > maxY) maxY = sheep[i].y;
 		}
 		// if all the sheep are above or below the gate, adjust the max/min values accordingly
-		double distFromGate = endGame ? 4.0 : 8;
-		minY = minY > 50 - distFromGate ? 50 - distFromGate : minY;
-		maxY = maxY < 50 + distFromGate ? 50 + distFromGate : maxY;
-		nodes[0] = new SheepNode(new Point(50.0 + EPSILON, maxY));
-		nodes[1] = new SheepNode(new Point(50.0 + EPSILON, minY));
+		double distFromGate = endGame ? MIN_VERTICAL_GATE_DIST_ENDGAME : MIN_VERTICAL_GATE_DIST;
+		minY = minY > FENCE_CENTER - distFromGate ? FENCE_CENTER - distFromGate : minY;
+		maxY = maxY < FENCE_CENTER + distFromGate ? FENCE_CENTER + distFromGate : maxY;
+		nodes[0] = new SheepNode(new Point(FENCE_CENTER, maxY)); // exceptions might happen here, put + EPSILON back if so
+		nodes[1] = new SheepNode(new Point(FENCE_CENTER, minY));
 
 		// find p0, the rightmost lowest point, and set distance and angle to zero
 		SheepNode p0 = nodes[0];
@@ -422,40 +603,38 @@ public class Player extends sheepdog.sim.Player {
 
 	// grows the hull outward so the dog will enclose all the sheep
 	public Point[] growHull(Point[] hull) {
-		double rad = 1.5;
-		double rightRad = endGame ? rad * 2.5 : rad;
+		double rad = HULL_GROWTH_RADIUS;
+		double rightRad = endGame ? rad * HULL_GROWTH_ENDGAME_MULT : rad;
 		Point[] newPoints = new Point[hull.length * 6];
 		for (int i=0; i < hull.length; i++) {
 			// original point
 			newPoints[6 * i + 0] = new Point(hull[i]);
 			// point above
-			newPoints[6 * i + 1] = new Point(hull[i].x, hull[i].y - rad <= 0.0 ? 0.0 + EPSILON : hull[i].y - rad);
+			newPoints[6 * i + 1] = new Point(hull[i].x, hull[i].y - rad <= FENCE_TOP ? FENCE_TOP + EPSILON : hull[i].y - rad);
 			// point below
-			newPoints[6 * i + 2] = new Point(hull[i].x, hull[i].y + rad >= 100.0 ? 100.0 - EPSILON : hull[i].y + rad);
+			newPoints[6 * i + 2] = new Point(hull[i].x, hull[i].y + rad >= FENCE_BOTTOM ? FENCE_BOTTOM - EPSILON : hull[i].y + rad);
 			// point on right
-			newPoints[6 * i + 3] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad, hull[i].y);
+			newPoints[6 * i + 3] = new Point(hull[i].x + rightRad >= FENCE_RIGHT ? FENCE_RIGHT - EPSILON : hull[i].x + rightRad, hull[i].y);
 			// top right
-			newPoints[6 * i + 4] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad,
-					hull[i].y - rad <= 0.0 ? 0.0 + EPSILON : hull[i].y - rad);
+			newPoints[6 * i + 4] = new Point(hull[i].x + rightRad >= FENCE_RIGHT ? FENCE_RIGHT - EPSILON : hull[i].x + rightRad,
+					hull[i].y - rad <= FENCE_TOP ? FENCE_TOP + EPSILON : hull[i].y - rad);
 			// bottom right
-			newPoints[6 * i + 5] = new Point(hull[i].x + rightRad >= 100.0 ? 100.0 - EPSILON : hull[i].x + rightRad,
-					hull[i].y + rad >= 100.0 ? 100.0 - EPSILON : hull[i].y + rad);
+			newPoints[6 * i + 5] = new Point(hull[i].x + rightRad >= FENCE_RIGHT ? FENCE_RIGHT - EPSILON : hull[i].x + rightRad,
+					hull[i].y + rad >= FENCE_BOTTOM ? FENCE_BOTTOM - EPSILON : hull[i].y + rad);
 		}
 		return computeHull(newPoints);
 	}
-	
+
 	public Point[] computeFullPath(Point[] grownHull, double moveInDistance) {
 		ArrayList<Point> fullPath = new ArrayList<Point>();
-		
 		for (int i = 0; i < grownHull.length; i++) {
 			fullPath.add(grownHull[i]);
-			Point inPoint = getDirectionOfLength(moveInDistance, grownHull[i], center);
+			Point inPoint = getDirectionOfLength(moveInDistance, grownHull[i], CENTER);
 			inPoint.x += grownHull[i].x;
 			inPoint.y += grownHull[i].y;
-			fullPath.add(clamp(inPoint, 0.0, 100.0, 52.0, 100.0));
+			fullPath.add(clamp(inPoint, FENCE_TOP, FENCE_BOTTOM, MIN_PUSH_X_VAL, FENCE_RIGHT));
 			fullPath.add(grownHull[i]);
 		}
-		
 		return fullPath.toArray(new Point[fullPath.size()]);
 	}
 
